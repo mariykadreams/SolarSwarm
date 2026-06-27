@@ -48,59 +48,7 @@ Secondary wow: 2+ days of autonomy for a single intersection, coordinated across
 
 ## Approaches Considered
 
-### Approach A: Minimal — Single Smart Solar Light + Dashboard
-**Summary:** Build one light with solar panel, LiFePO4 battery, MPPT controller, LED, and a microcontroller that reports battery level and brightness to a dashboard. No swarm, no communication between lights. Demonstrates the "smart solar light" concept.
 
-**Effort:** S (human: 1 day / CC: 2h planning)
-**Risk:** Low
-**Pros:**
-- Achievable in any hackathon timeframe
-- Hardware failure only kills one unit
-- Easy to explain
-
-**Cons:**
-- No swarm — misses the core differentiator
-- Looks like an existing product (Fonroche SmartLight, EngoPlanet)
-- No "wow" moment
-
-**Reuses:** Research Section 2 (hardware architecture)
-
----
-
-### Approach B: Full Swarm — 4 Physical Lights + LoRa Mesh + Dashboard
-**Summary:** Build all 4 lights with LoRaWAN communication. Run the swarm relay algorithm on each microcontroller. Dashboard shows live battery levels and which light is active. Full pilot budget required.
-
-**Effort:** XL (human: 2–3 weeks / CC: 1 day planning + validation)
-**Risk:** High (hardware failure, LoRa signal issues, integration bugs)
-**Pros:**
-- Complete end-to-end demo
-- Shows production-ready architecture
-- Real data for the KPIs
-
-**Cons:**
-- Risky for hackathon — 4 hardware units, LoRa gateway, full integration
-- Budget: $7,000–8,000 just for hardware
-- 4-week pilot timeline per research (Section 8)
-
-**Reuses:** Research Sections 2–8 (full stack)
-
----
-
-### Approach C: Hybrid — 1 Real Light + Simulated Swarm + Live Dashboard
-**Summary:** Build 1 physical light with solar panel, battery, and LoRa module. Simulate 3 additional "virtual" lights in software, each with realistic battery depletion curves based on the research calculations (Section 5). Dashboard shows all 4 lights — 1 real, 3 simulated — with live swarm algorithm running. Demo: cut power, watch the swarm coordinate in real-time on the dashboard, with the physical light visibly responding.
-
-**Effort:** M (human: 3–5 days / CC: 4h architecture + code review)
-**Risk:** Medium (requires LoRa module + solar panel not in current inventory)
-**Pros:**
-- Swarm algorithm is fully functional and visible
-- Dashboard is the star of the demo
-- Physical light adds credibility
-
-**Cons:**
-- Requires hardware not currently available (LoRa module, solar panel, MPPT, gateway)
-- Simulation must be realistic (use the battery depletion math from Section 5)
-
-**Reuses:** Research Sections 2, 3, 4, 5 (hardware + algorithm + energy math)
 
 ---
 
@@ -255,42 +203,49 @@ Reason: Matches the hardware actually available. WiFi is functionally identical 
 
 ### 7. User Journey
 
-**Normal operation (grid up):**
-1. Day: Solar panels charge LiFePO4 batteries via MPPT controllers
-2. Evening: Grid powers the lights normally; batteries topped up
-3. Dashboard shows: all units green, SOC 95–100%, grid: connected
+*Written for Approach D demo. Real-world mapping noted in brackets.*
 
-**Outage begins:**
-4. Grid voltage drops below threshold → each unit's controller detects it within 30 seconds
-5. All units switch to battery mode simultaneously
-6. Dashboard shows: "GRID FAILURE DETECTED — swarm mode active"
-7. Unit priority queue established (by battery SOC, highest first)
+**Demo setup — "grid up" state:**
+1. Both ESP32s powered via USB or battery, connected to demo laptop WiFi hotspot
+2. 2 simulation scripts running on laptop (units #2 and #3)
+3. All 4 units POSTing SOC to backend every 5s; dashboard shows 4 green bars (SOC ~95%)
+4. LED strips on both physical ESP32s at 80% brightness (conservation mode baseline)
+5. Dashboard shows: all units green, grid: connected
 
-**Swarm in action:**
-8. Night hours 1–4: All units light at 80% brightness (battery conservation mode)
-9. Hour 5: Unit #3 drops to 30% SOC → dims to 50% brightness, broadcasts "low battery" to swarm
-10. Swarm controller: Unit #1 (highest SOC, 65%) ramps to 100%
-11. Hour 7: Unit #3 drops to 10% SOC → goes to minimum (5% brightness), passes duty to Unit #2
-12. Unit #3 signals "critical" → Unit #2 activates at 100%
-13. Cycle repeats — baton passes from unit to unit as batteries deplete
-14. Minimum: at least one unit active above 20% brightness at all times
+**Outage triggered — demo moment:**
+6. Presenter covers photoresistor on unit #0 with hand [real world: grid voltage drops]
+7. Unit #0 sends `grid_status=0` in next uplink (within 5 seconds)
+8. Backend detects first outage signal → sets `swarm_active=true` → builds SOC priority queue (highest SOC = primary)
+9. Dashboard shows: "OUTAGE DETECTED — Swarm mode active" event card; all unit indicators turn yellow
+10. Units commanded: primary (#0 or highest SOC) → 100% brightness; others → 50% conservation
 
-**Emergency scenario:**
-- If ALL units drop below 10% simultaneously: all units enter 5% minimum brightness mode (visibility maintained)
-- Alert fired to operator: "SolarSwarm at [location]: critical — all units <10%"
-- Operator dispatched or wait for sunrise recharge
+**Swarm in action — the baton pass (DEMO_SPEED=10: plays out in ~2 minutes on screen):**
+11. SOC counters drain: primary runs at 100%, standby units at ~5% parasitic drain
+12. Unit #0 SOC hits 30% → backend queues relay → next unit (#1) starts ramping up
+13. Physical LED strip on unit #0 visibly dims; strip on unit #1 brightens — baton pass visible in the room
+14. Dashboard event: "Relay started: Unit 0 → Unit 1 | SOC trigger: 29%"
+15. Unit #0 SOC hits 10% → goes to 5% minimum; unit #1 becomes full primary (100%)
+16. Dashboard event: "Relay complete: Unit 1 is primary"
+17. Cycle repeats: units #1 → #2 (simulated) → #3 (simulated) as SOCs deplete in turn
 
-**Communication-lost fallback (LoRa gateway failure):**
-- If a unit does not receive a swarm heartbeat for >2 minutes, it enters solo mode
-- Solo mode: unit lights at 70% brightness independently, ignoring swarm coordination
-- On communication restore: unit re-announces its SOC, rejoins swarm, syncs queue
-- This means swarm coordination degrades gracefully to N independent smart lights — no dark scenario even if LoRa fails entirely
+**Emergency state — all units low:**
+- When all 4 units <10% SOC: all LED strips hold at 5% minimum (still visible — not dark)
+- Dashboard alert: "CRITICAL — All units below 10% — coverage at minimum"
+- [Real world: operator dispatched or wait for sunrise recharge]
+- Demo: uncover photoresistor to simulate sunrise/grid restore → triggers recovery
 
-**Grid restoration:**
-15. Grid voltage restored → units detect within 60 seconds
-16. All units switch back to grid power
-17. Batteries begin charging via MPPT
-18. Dashboard shows: "Grid restored — charging in progress"
+**Communication-lost fallback:**
+- If ESP32 WiFi drops: HTTP POST times out after 3s
+- After 3 consecutive timeouts: ESP32 holds last commanded brightness independently
+- On reconnect: next successful POST returns fresh brightness command; unit rejoins swarm
+- [Real world: same logic; LoRa loss → unit holds last state; on reconnect → re-syncs]
+
+**Grid restored / demo reset:**
+18. Presenter uncovers photoresistor → `grid_status=1` in next uplink
+19. Backend detects all units report grid up → sets `swarm_active=false`
+20. All units commanded back to 80% conservation brightness
+21. SOC counters reset to 95% (software reset for next demo run)
+22. Dashboard: "Grid restored — Units recharging" [real world: MPPT begins solar charging]
 
 ---
 
@@ -325,7 +280,7 @@ Reason: Matches the hardware actually available. WiFi is functionally identical 
   └── Uptime counter: "X hours of coverage remaining"
 ```
 
-**Production hardware stack (Approach B — full city deployment, for reference):**
+**Production hardware stack (Approach B — city deployment reference):**
 
 ```
 [Solar Panel 200W] → [MPPT Controller] ←→ [LiFePO4 48V/25Ah]
@@ -333,20 +288,34 @@ Reason: Matches the hardware actually available. WiFi is functionally identical 
 [ESP32] → [SX1276 LoRa module] → [LoRaWAN Gateway] → [TTN] → [Backend]
 ```
 
-**Swarm topology decision: CENTRALIZED (backend orchestrates).** The backend receives SOC updates from all units every 5 seconds via WiFi HTTP POST, computes the relay queue (sorted by SOC descending), and returns the brightness command in the HTTP response body. No downlink complexity — ESP32 reads its brightness from the response. Edge-only (decentralized peer-to-peer) is deferred to v2. In the demo, WiFi loss means the unit holds its last brightness level — acceptable for indoor demo.
+**Swarm topology: CENTRALIZED (backend orchestrates).** Backend receives SOC from all 4 units every 5s, computes relay queue (SOC descending), returns brightness command in the HTTP response body. No separate downlink channel needed for demo. Edge peer-to-peer deferred to v2.
 
-**Priority queue assignment rule:** At the moment of grid failure, the backend ranks all units by current SOC (highest first). Unit #1 in the queue is the "primary" light (100% brightness). When primary drops below 30%, the next in queue ramps up. Queue is re-evaluated every 60 seconds — a unit that partially recharges during the day can re-enter at its new position.
+**Priority queue rule:** On outage trigger, backend ranks all 4 units by current SOC. Highest SOC = primary (100% brightness). At 30% SOC → next unit ramps up alongside. At 10% → full handoff, primary drops to 5%. Queue re-evaluated on every uplink tick.
 
-**Which part creates most value:** The swarm relay algorithm + dashboard. The hardware is commodity (Fonroche, Signify make the same panels/batteries). The coordination logic and the operator visibility are the differentiators no competitor currently offers at the municipal level.
+**Demo wiring (per physical ESP32 unit):**
+```
+Battery/USB 5V → ESP32 VIN + GND
 
-**Energy flow in numbers (from research Section 5, with overhead correction):**
-- 4 × 50W LEDs, 10h/night = 2 kWh/night total if all run simultaneously
-- With swarm relay (1 active at a time): 0.5 kWh/night LED load
-- Parasitic drain (ESP32 microcontroller + LoRa module + MPPT idle + DC-DC converter losses): ~10–15% overhead → effective consumption ~0.57 kWh/night
-- 1 × 200W panel, Kyiv climate (4 peak sun hours): 0.8 kWh/day generated (minus 10% MPPT+wiring losses = 0.72 kWh usable)
-- Battery: 1.2 kWh per unit × 4 units = 4.8 kWh total swarm capacity
-- Autonomy with overhead: 4.8 kWh ÷ 0.57 kWh/night = **~8.4 nights theoretical**
-- Conservative 48-hour (2-night) KPI is well within margin even with overhead — confirmed feasible
+PWM brightness control:
+  ESP32 GPIO (any PWM-capable, e.g. GPIO13)
+    → 100Ω resistor (from resistors on hand)
+    → N-channel MOSFET gate (e.g. 2N7000, IRF540, or similar)
+  MOSFET Drain → LED strip negative terminal
+  MOSFET Source → GND
+  LED strip positive → 5V (USB) or 12V (if 12V strip + separate supply)
+
+Optional battery voltage read:
+  Battery+ → 10kΩ → GPIO34 (ADC) → 10kΩ → GND
+  (voltage divider; adjust resistor ratio to keep ADC input ≤ 3.3V)
+
+Optional photoresistor (outage trigger):
+  3.3V → Photoresistor → GPIO35 (ADC) → 10kΩ → GND
+  (high reading = bright/grid-up; low = dark/outage)
+```
+
+**Which part creates the most value:** The swarm relay algorithm + dashboard. Hardware is commodity — the coordination logic and real-time operator visibility are differentiators no competitor currently offers at municipal scale.
+
+**Production energy math (reference only — not demo numbers):** 4× 50W LEDs with swarm relay (1 active at a time) = ~0.57 kWh/night effective. 4× 1.2 kWh LiFePO4 = 4.8 kWh total → ~8.4 nights theoretical autonomy. 48-hour KPI is conservative and feasible. See research Section 5 for full calculation.
 
 ---
 
