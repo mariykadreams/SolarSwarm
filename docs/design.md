@@ -86,31 +86,59 @@ Secondary wow: 2+ days of autonomy for a single intersection, coordinated across
 
 ---
 
-### Approach C: Hybrid — 1 Real Light + Simulated Swarm + Live Dashboard (RECOMMENDED)
+### Approach C: Hybrid — 1 Real Light + Simulated Swarm + Live Dashboard
 **Summary:** Build 1 physical light with solar panel, battery, and LoRa module. Simulate 3 additional "virtual" lights in software, each with realistic battery depletion curves based on the research calculations (Section 5). Dashboard shows all 4 lights — 1 real, 3 simulated — with live swarm algorithm running. Demo: cut power, watch the swarm coordinate in real-time on the dashboard, with the physical light visibly responding.
 
 **Effort:** M (human: 3–5 days / CC: 4h architecture + code review)
-**Risk:** Medium (hardware for 1 unit only; simulation isolates swarm logic)
+**Risk:** Medium (requires LoRa module + solar panel not in current inventory)
 **Pros:**
-- Hackathon-feasible: 1 physical unit, rest is software
 - Swarm algorithm is fully functional and visible
-- Dashboard is the star of the demo — no hardware surprises
-- Physical light adds credibility ("this is real hardware")
-- Directly extensible to full 4-light deployment
+- Dashboard is the star of the demo
+- Physical light adds credibility
 
 **Cons:**
-- Judges may ask "but does it work with 4 real lights?" — have an answer ready
+- Requires hardware not currently available (LoRa module, solar panel, MPPT, gateway)
 - Simulation must be realistic (use the battery depletion math from Section 5)
 
 **Reuses:** Research Sections 2, 3, 4, 5 (hardware + algorithm + energy math)
 
 ---
 
+### Approach D: Demo Swarm — 2 ESP32 + WiFi + LED Strip + Simulated Battery Drain (RECOMMENDED)
+
+**Summary:** Use the 2 ESP32s and LED strip already on hand. Each ESP32 controls a section of LED strip and reports a simulated battery SOC to the backend via WiFi (HTTP POST). Simulate 2 additional virtual units in software. The dashboard shows all 4 units — 2 real hardware, 2 simulated. Swarm relay algorithm runs on the backend (same logic as full system). Demo: disconnect one ESP32 from WiFi or manually trigger "low battery" → the other ESP32's LEDs ramp up, dashboard updates live. The baton-pass moment is fully visible. No LoRa, no gateway, no solar panels required — just WiFi, which is built into the ESP32.
+
+**Available hardware used:**
+- 2× ESP32 (WiFi built-in — replaces LoRa entirely for demo)
+- LED strip (PWM-controlled via ESP32 GPIO — replaces LED module)
+- Batteries / USB power banks (power the ESP32 + strip — simulated SOC, no MPPT needed)
+- Resistors (voltage divider to read actual battery voltage if desired)
+- Photoresistors (optional: simulate "solar input detected" when ambient light is present)
+
+**Effort:** S–M (human: 1–2 days / CC: 2h firmware + backend)
+**Risk:** Low — WiFi is reliable indoors, LED strip is trivial to wire, no new parts to buy
+**Pros:**
+- Zero additional hardware cost — uses exactly what the team has
+- WiFi replaces LoRa with no loss of demo value (concept is identical)
+- 2 real units blinking and dimming in sync makes the swarm visible and tangible
+- Judges can walk up and unplug a unit to trigger the relay live
+- Backend + dashboard identical to full-scale design — extensible to real LoRa deployment
+- No TTN/gateway setup, no LoRaWAN credentials, no RF troubleshooting
+
+**Cons:**
+- WiFi is not production comm stack (LoRaWAN is, for outdoor range) — frame as "demo transport, production uses LoRa"
+- LED strip ≠ street light (obvious) — have one sentence ready: "real unit uses 50W LED module, same firmware"
+- SOC is simulated in software, not read from a real battery (unless voltage divider is wired)
+
+**Reuses:** Research Sections 2, 3, 4, 5; all D7 API contracts; backend swarm engine unchanged
+
+---
+
 ## Recommended Approach
 
-**Approach C — Hybrid (1 physical + simulated swarm)**
+**Approach D — Demo Swarm (2 physical ESP32 + WiFi + LED strip + 2 simulated units)**
 
-Reason: Eliminates the #1 hackathon failure mode (hardware doesn't work in time) while delivering the full conceptual demo. The dashboard is the differentiator, not the number of physical units. The physical light proves it's not just a slide deck.
+Reason: Matches the hardware actually available. WiFi is functionally identical to LoRa for a demo — the swarm algorithm, the baton-pass moment, and the dashboard are all real. Two physical units responding visually (LED strips brightening/dimming) is more convincing than one, and costs nothing extra. The concept is proven; the production comm stack (LoRa) is a component swap, not a redesign.
 
 ---
 
@@ -202,27 +230,26 @@ Reason: Eliminates the #1 hackathon failure mode (hardware doesn't work in time)
 
 ### 6. Feature Classification
 
-| Feature | Priority | Rationale |
+| Feature | Priority | Demo implementation |
 |---|---|---|
-| Individual solar unit (panel + LiFePO4 + LED) | **Must Have** | Core hardware — nothing works without it |
-| Battery level monitoring per unit | **Must Have** | Foundation of swarm algorithm |
-| LoRaWAN communication between units | **Must Have** | Swarm requires inter-unit signaling |
-| Swarm relay algorithm (Anti-BlackOut) | **Must Have** | The product differentiator |
-| Grid-failure detection + swarm activation | **Must Have** | Triggers the swarm mode |
-| Real-time dashboard (battery %, active light, uptime) | **Must Have** | Operator visibility; also the hackathon demo star |
-| MPPT controller for efficient solar charging | **Must Have** | Required for 2-day autonomy to be achievable |
-| Configurable relay thresholds (30% / 10%) | **Should Have** | Different intersections have different needs |
-| Brightness dimming (adaptive) | **Should Have** | Anti-BlackOut requires dimming before cutover |
-| Alert notifications (Telegram/SMS on low battery) | **Should Have** | Operators need proactive warning |
-| Motion sensor for adaptive brightness (PIR) | **Should Have** | Extends battery life meaningfully |
-| Historical uptime reports | **Should Have** | KPI tracking for city managers |
-| NB-IoT backup communication | **Nice to Have** | Fallback if LoRa fails — important for production |
-| Mobile app for field technicians | **Nice to Have** | Convenient but dashboard covers it |
-| OTA firmware updates | **Nice to Have** | Critical for production; optional for hackathon |
-| PSO optimization algorithm | **Future Version** | Research mentions it, but heuristic swarm is sufficient first |
-| Peer-to-peer energy transfer (inductive) | **Future Version** | Research flags high losses; not practical yet |
-| Predictive maintenance (ML) | **Future Version** | Requires months of operational data first |
-| Integration with city SCADA/management systems | **Future Version** | Complex; enterprise sales cycle |
+| ESP32 unit with LED strip (PWM brightness control) | **Must Have** | 2× ESP32 + LED strip on hand — wire GPIO → MOSFET → strip |
+| Simulated battery SOC per unit | **Must Have** | Software counter depleting at configurable rate; 2 real + 2 virtual |
+| WiFi communication (ESP32 → backend) | **Must Have** | Built-in on ESP32; replaces LoRa for demo; HTTP POST every 5s |
+| Swarm relay algorithm (Anti-BlackOut) | **Must Have** | Backend Python — identical logic to production |
+| "Outage" trigger (manual button or API call) | **Must Have** | Button on ESP32 or `POST /api/simulate/outage` from demo laptop |
+| Real-time dashboard (battery %, active light, uptime) | **Must Have** | React + Recharts; WebSocket updates |
+| Brightness dimming (adaptive via PWM) | **Must Have** | ESP32 PWM on LED strip — shows baton-pass visually |
+| Photoresistor as "solar sensor" (optional) | **Should Have** | Read analog → simulate charging when ambient light present |
+| Voltage divider to read actual battery voltage | **Should Have** | Resistors on hand; read ADC on ESP32; gives real SOC data |
+| Configurable relay thresholds (30% / 10%) | **Should Have** | Hardcoded for demo; env var for judges to tweak |
+| Historical SOC chart (time-series) | **Should Have** | SQLite; shows depletion curves on dashboard |
+| Alert feed on dashboard | **Should Have** | WebSocket push when relay fires |
+| LoRaWAN communication (production) | **Future Version** | Swap WiFi for SX1276 module; firmware is identical otherwise |
+| Solar panel + MPPT + LiFePO4 battery | **Future Version** | Full hardware stack for city deployment |
+| NB-IoT fallback | **Future Version** | After LoRa coverage confirmed at deployment site |
+| Telegram/SMS alerts | **Future Version** | OAuth setup not worth it for hackathon demo |
+| OTA firmware updates | **Future Version** | Required for production fleet |
+| Predictive maintenance (ML) | **Future Version** | Requires months of operational data |
 
 ---
 
@@ -269,43 +296,44 @@ Reason: Eliminates the #1 hackathon failure mode (hardware doesn't work in time)
 
 ### 8. System Architecture
 
-```
-[Solar Panel 200W]
-        ↓
-[MPPT Controller] ←→ [LiFePO4 Battery 48V/25Ah = 1.2kWh]
-        ↓                        ↓
-[LED Driver 50W] ←── [DC-DC Converter]
-        ↓
-[LED Module 50W, 130-170 lm/W]
+**Demo hardware stack (Approach D — what's actually being built):**
 
-[Microcontroller ESP32 or STM32]
-  ├── Reads: Battery SOC (via coulomb counter / voltage divider)
-  ├── Reads: Grid voltage (AC sense circuit)
-  ├── Reads: PIR motion sensor (optional)
-  ├── Controls: LED brightness via PWM → LED Driver
-  └── Communicates via: LoRaWAN Module (SX1276 / RFM95)
+```
+[Battery / USB power bank]
+        ↓
+[ESP32 (×2 physical units)]
+  ├── Reads: Simulated SOC counter (software) — depleting each tick
+  ├── Reads: Voltage divider on ADC pin → actual battery voltage (optional, resistors on hand)
+  ├── Reads: Photoresistor on ADC pin → simulate solar charge when lit (optional)
+  ├── Controls: LED strip brightness via PWM on GPIO (MOSFET gate if strip >3.3V)
+  └── Communicates via: WiFi (built-in) → HTTP POST to backend every 5s
               ↓
-[LoRaWAN Gateway (1 per intersection, ~$150)]
-              ↓
-[The Things Network (TTN) or ChirpStack (self-hosted)]
-              ↓
-[Backend: FastAPI (Python) or Node.js]
+[Backend: FastAPI (Python), runs on demo laptop]
   ├── Swarm orchestration logic (CENTRALIZED — backend decides relay order)
-  ├── Battery SOC aggregation
-  ├── Grid failure event processing
+  ├── SOC aggregation: 2 real ESP32 payloads + 2 simulation script payloads
+  ├── Sends brightness command back in HTTP response (no downlink complexity)
   └── REST API + WebSocket for dashboard
               ↓
-[Dashboard: React + Recharts / or Grafana]
-  ├── Live map of intersection (4 lights, color-coded by SOC)
-  ├── Battery level chart (all units, time-series)
-  ├── Active light indicator (which unit is "primary")
-  ├── Uptime counter (hours without grid / hours of coverage maintained)
-  └── Alert feed
+[2× Simulation scripts (Python)]
+  ├── Simulate units #2 and #3 with realistic SOC depletion curves
+  └── POST to same /api/uplink endpoint every 5s
               ↓
-[Telegram Bot / Email alerts]
+[Dashboard: React + Recharts, runs on demo laptop]
+  ├── Live grid of 4 lights (2 labeled "physical", 2 "simulated")
+  ├── Battery SOC bars per unit (live drain animation)
+  ├── Active light indicator + "baton pass" event feed
+  └── Uptime counter: "X hours of coverage remaining"
 ```
 
-**Swarm topology decision: CENTRALIZED (backend orchestrates).** The backend receives SOC updates from all units every 30 seconds via LoRa, computes the relay queue (sorted by SOC descending), and sends brightness commands to each unit via LoRa downlink. Edge-only (decentralized peer-to-peer) is listed in the research as an option but requires more complex consensus logic — defer to v2. In the centralized model, gateway failure means units fall back to solo mode (see User Journey: comms-lost fallback).
+**Production hardware stack (Approach B — full city deployment, for reference):**
+
+```
+[Solar Panel 200W] → [MPPT Controller] ←→ [LiFePO4 48V/25Ah]
+  → [LED Driver 50W] → [LED Module 50W]
+[ESP32] → [SX1276 LoRa module] → [LoRaWAN Gateway] → [TTN] → [Backend]
+```
+
+**Swarm topology decision: CENTRALIZED (backend orchestrates).** The backend receives SOC updates from all units every 5 seconds via WiFi HTTP POST, computes the relay queue (sorted by SOC descending), and returns the brightness command in the HTTP response body. No downlink complexity — ESP32 reads its brightness from the response. Edge-only (decentralized peer-to-peer) is deferred to v2. In the demo, WiFi loss means the unit holds its last brightness level — acceptable for indoor demo.
 
 **Priority queue assignment rule:** At the moment of grid failure, the backend ranks all units by current SOC (highest first). Unit #1 in the queue is the "primary" light (100% brightness). When primary drops below 30%, the next in queue ramps up. Queue is re-evaluated every 60 seconds — a unit that partially recharges during the day can re-enter at its new position.
 
@@ -451,35 +479,30 @@ Reason: Eliminates the #1 hackathon failure mode (hardware doesn't work in time)
 
 ### Technical Decisions Locked
 
-**D2 — TTN integration method: HTTP Webhook (recommended) or MQTT subscription**
+**D2 — ESP32 communication: direct HTTP POST to backend (no TTN, no gateway)**
 
-Both options:
-- **HTTP Webhook** (recommended for hackathon): TTN sends a POST request to `POST /api/uplink` on FastAPI every time a unit sends a LoRa message. No persistent connection to manage. TTN free tier supports webhooks. Simplest async integration in FastAPI — just a route handler.
-- **MQTT subscription**: FastAPI maintains a persistent MQTT connection to TTN's broker using `aiomqtt`. Slightly lower latency. Requires background task, reconnect logic, and a persistent connection to manage. Better for production; overkill for hackathon.
+ESP32 posts JSON to `POST /api/uplink` on the FastAPI backend every 5 seconds over WiFi. Backend responds with the commanded brightness for that unit. No TTN, no MQTT, no LoRaWAN — just `WiFiClient` + `HTTPClient` on the ESP32 Arduino library. This is 20 lines of firmware code. When moving to production, swap the WiFiClient for a LoRa send and add TTN webhook handling on the backend — the `/api/uplink` contract is unchanged.
 
-**Locked: HTTP Webhook for hackathon. MQTT for production/v2.**
+**Locked: Direct WiFi HTTP for demo. LoRaWAN + TTN webhook for production.**
 
 ---
 
-**D3 — Simulation engine: separate Python process (chosen because hardware prototype is planned)**
+**D3 — Simulation engine: separate Python process**
 
-3 simulated lights run as separate Python scripts that POST to `POST /api/uplink` every 30s, identical to what real hardware does via TTN webhook. When you add more physical units (Approach B full pilot), nothing changes in the backend — just stop running the simulation scripts.
+2 simulated units run as Python scripts that POST to `POST /api/uplink` every 5s, identical to what the real ESP32s do. When you add more physical units, stop running the corresponding simulation script. Nothing changes in the backend.
 
-Depletion math per tick (30s):
+Depletion math per tick (5s) — scaled for demo speed (demo runs at 10× real speed so judges see the baton pass in ~2 minutes, not 5 hours):
 ```
-soc_per_tick = (0.57 kWh/night × 1/10h × 30s/3600s) / 1.2 kWh × 100%
-             = (0.057 kW × 0.00833h) / 1.2 kWh × 100%
-             ≈ 0.04% SOC per 30s tick (when unit is primary/active)
+soc_per_tick = demo_drain_rate (configurable, default 0.5% per 5s when primary/active)
+             = 0.05% per 5s when unit is standby (parasitic only)
 ```
-When unit is NOT primary (not lighting), drain is parasitic only: ~10% of the above = ~0.004% SOC per 30s tick.
+Set `DEMO_SPEED=1` for realistic rate (0.04%/5s active), `DEMO_SPEED=10` for fast demo.
 
 ---
 
-**D4 — LoRa Class A accepted (30s max command latency)**
+**D4 — Command latency: <1s (WiFi replaces LoRa)**
 
-Class A devices open two downlink receive windows immediately after each uplink. At 30s uplink intervals, worst-case command latency is 30s. Under congestion, the device may miss the RX windows and wait until the next uplink cycle (up to 60s). The `<60s relay KPI` is met in normal conditions but may be borderline under RF congestion. Class C (always listening) would be instant but draws 10× more power — unacceptable for battery-powered operation.
-
-**Documented limitation: relay KPI is 30–60s under congestion, not guaranteed <60s.**
+HTTP round-trip on local WiFi: <100ms typical. Relay command is returned in the response body of each uplink POST — no separate downlink channel needed. The `<60s relay KPI` is easily met. No RF congestion, no duty cycle constraint, no Class A/C tradeoff.
 
 ---
 
@@ -489,22 +512,21 @@ On page load: `GET /api/state` returns current SOC, brightness, grid status for 
 
 ---
 
-**D6 — LoRa packet format (5-byte binary)**
+**D6 — Uplink payload format (JSON over WiFi)**
 
-Compact binary to minimize airtime (EU868 1% duty cycle constraint):
+Plain JSON — no binary encoding needed, no duty cycle constraint, WiFi has no airtime cost:
 
+```json
+{
+  "unit_id": 0,
+  "soc_percent": 72,
+  "grid_status": 1,
+  "battery_mv": 3850,
+  "type": "physical"
+}
 ```
-Byte 0: unit_id       (uint8, 0–3)
-Byte 1: soc_percent   (uint8, 0–100)
-Byte 2: grid_status   (uint8, 0=fail, 1=ok)
-Byte 3: battery_mv_hi (uint8, high byte of battery mV)
-Byte 4: battery_mv_lo (uint8, low byte of battery mV)
 
-Total: 5 bytes. Transmitted as base64 in TTN webhook payload field.
-Decode: battery_mv = (byte[3] << 8) | byte[4]
-```
-
-Backend decodes from TTN webhook's `frm_payload` field (base64). Simulation scripts encode with the same format. Firmware encodes with the same format. All three agree.
+Backend parses with Pydantic model. Simulation scripts send identical JSON with `"type": "simulated"`. Firmware sends with `"type": "physical"`. All three agree. When moving to LoRa production, switch to 5-byte binary (see original D6 in git history) to respect EU868 duty cycle — but that's a firmware-only change, API contract stays the same.
 
 ---
 
@@ -512,9 +534,9 @@ Backend decodes from TTN webhook's `frm_payload` field (base64). Simulation scri
 
 ```
 POST /api/uplink
-  Body: TTN webhook format (JSON with frm_payload as base64-encoded 5-byte packet)
-  Response: 200 OK
-  Used by: TTN webhook integration AND simulation scripts
+  Body: {"unit_id": 0, "soc_percent": 72, "grid_status": 1, "battery_mv": 3850, "type": "physical"}
+  Response: {"brightness": 80, "swarm_active": false}
+  Used by: ESP32 firmware (WiFi HTTP) AND simulation scripts — brightness command in response body
 
 GET /api/state
   Response: {
@@ -541,18 +563,9 @@ WebSocket /ws
 
 ---
 
-**D9 — Backend failure mode: heartbeat downlink added**
+**D9 — Backend failure mode: timeout on HTTP response**
 
-The comms-lost fallback (>2min no heartbeat → solo mode) was designed for gateway/LoRa failure. It does NOT cover backend process crash — units keep sending uplinks fine but no relay commands arrive.
-
-Fix: backend sends a downlink heartbeat to each unit every 60s (every 2nd uplink cycle). Unit-side firmware: if no downlink received within 2 minutes, assume backend is dead, enter solo mode (70% brightness). This makes the comms-lost fallback work for both gateway failure AND backend failure.
-
-```
-Backend downlink heartbeat format (3 bytes):
-  Byte 0: 0xFF (heartbeat marker)
-  Byte 1: target_brightness (uint8, 0–100, current commanded brightness)
-  Byte 2: swarm_active (uint8, 0=grid up/solo, 1=swarm mode)
-```
+With WiFi HTTP, the ESP32 detects backend failure immediately — the HTTP POST times out (set timeout to 3s). Firmware: if 3 consecutive POSTs time out (15s total), hold last brightness value and continue operating. No separate heartbeat channel needed — the uplink IS the heartbeat. For demo purposes this is sufficient; production LoRa system would use the 3-byte downlink heartbeat format described in the original architecture.
 
 ---
 
@@ -627,18 +640,18 @@ Items considered and explicitly deferred:
 
 | Step | Modules touched | Depends on |
 |---|---|---|
-| ESP32 firmware | `firmware/` | — |
-| Backend swarm engine | `backend/swarm_engine.py`, `backend/api.py`, `backend/db.py` | API contract (D7) locked |
+| ESP32 firmware | `firmware/` | Backend URL + JSON format (D6 locked) |
+| Backend swarm engine + API | `backend/swarm_engine.py`, `backend/api.py`, `backend/db.py` | API contract (D7) locked |
 | Simulation scripts | `simulation/` | API contract (D7) locked |
 | React dashboard | `frontend/src/` | API contract (D7) locked |
 
 **Parallel lanes:**
-- Lane A: ESP32 firmware (`firmware/`) — independent; connects via TTN once backend is up
-- Lane B: Backend (swarm engine + API + SQLite) — start here first; blocks C and D
-- Lane C: Simulation scripts — needs `POST /api/uplink` endpoint spec (D7 locked, start immediately)
-- Lane D: React dashboard — needs `GET /api/state` + WebSocket spec (D7 locked, start immediately)
+- Lane A: ESP32 firmware (`firmware/`) — start day 1; only needs backend IP + JSON format; test with curl mock before backend is ready
+- Lane B: Backend (T2 + T3 + T6) — start first (30 min to stub); blocks C and D for integration but not for development
+- Lane C: Simulation scripts (T4) — start immediately alongside B; POST to localhost stub
+- Lane D: React dashboard (T5) — start immediately alongside B; mock state data until backend ready
 
-**Execution order:** Launch B first (30 min). Once POST /api/uplink is stubbed, launch C + D in parallel. Lane A (firmware) can run in parallel from day 1 — just needs the 5-byte packet spec (D6 locked).
+**Execution order:** B stub first (30 min: one route that returns `{"brightness": 80}`). Then A + C + D in parallel. Wire everything together once B is complete.
 
 **Conflict flags:** None. Each lane touches independent directories.
 
@@ -648,55 +661,37 @@ Items considered and explicitly deferred:
 
 Synthesized from this review's findings. Each task derives from a specific finding above.
 
-- [ ] **T1 (P1, human: ~2h / CC: ~20min)** — firmware — Define 5-byte LoRa packet format and implement in ESP32 firmware
-  - Surfaced by: D6 — packet format undefined; firmware/backend would diverge
-  - Files: `firmware/main.cpp`, `firmware/packet.h`
-  - Verify: Send test packet from ESP32, decode on backend, confirm field values match
-
-- [ ] **T2 (P1, human: ~3h / CC: ~30min)** — backend/api — Implement TTN HTTP webhook receiver (POST /api/uplink) with 5-byte binary decode
-  - Surfaced by: D2, D6, D7 — TTN integration method + packet format + API contract
-  - Files: `backend/api.py`, `backend/packet_decoder.py`
-  - Verify: POST mock TTN webhook payload → unit state updates correctly
-
-- [ ] **T3 (P1, human: ~4h / CC: ~45min)** — backend/swarm — Implement swarm engine (relay trigger, queue, emergency mode, comms-lost)
-  - Surfaced by: Architecture Section — core algorithm; test coverage (D8) requires it fully implemented
-  - Files: `backend/swarm_engine.py`
-  - Verify: pytest swarm_engine_test.py (all paths from coverage diagram)
-
-- [ ] **T4 (P1, human: ~1h / CC: ~15min)** — firmware — Add heartbeat downlink receiver: if no downlink within 2min, enter solo mode (70%)
-  - Surfaced by: D9 — backend failure mode unaddressed
+- [ ] **T1 (P1, human: ~1h)** — firmware — ESP32: connect to WiFi, POST JSON uplink every 5s, read brightness from response, set LED strip PWM
   - Files: `firmware/main.cpp`
-  - Verify: Kill backend process → after 2 min, measure LED at 70% brightness
+  - Verify: ESP32 posts to backend; LED strip dims/brightens on command; confirmed in Serial monitor
 
-- [ ] **T5 (P1, human: ~2h / CC: ~20min)** — simulation — Implement 3 simulation scripts with Section 5 depletion math
-  - Surfaced by: D3 — simulation engine unspecified
-  - Files: `simulation/sim_unit.py` (parameterized: unit_id, initial_soc)
-  - Verify: Run 3 instances; confirm they POST valid payloads every 30s; validate depletion rate
+- [ ] **T2 (P1, human: ~2h)** — backend/api — FastAPI: `POST /api/uplink` receives JSON, updates swarm state, returns `{"brightness": N}`; `GET /api/state` returns all 4 units; WebSocket `/ws` pushes updates
+  - Files: `backend/api.py`, `backend/swarm_engine.py`
+  - Verify: POST unit JSON → correct brightness returned; WebSocket client receives state_update events
 
-- [ ] **T6 (P2, human: ~2h / CC: ~20min)** — backend/db — Implement SQLite schema and async write helpers
-  - Surfaced by: D10 — PostgreSQL → SQLite; failure mode: silent write failure
-  - Files: `backend/db.py`
-  - Verify: DB persists across backend restart; GET /api/state returns historical chart data
+- [ ] **T3 (P1, human: ~1h)** — backend/swarm — Swarm engine: relay queue sorted by SOC descending; triggers at 30% (ramp next) and 10% (hand off); emergency mode if all <10%
+  - Files: `backend/swarm_engine.py`
+  - Verify: Simulate SOC drops → correct unit becomes primary each time
 
-- [ ] **T7 (P2, human: ~2h / CC: ~20min)** — frontend — Implement GET /api/state on mount + WebSocket subscription
-  - Surfaced by: D5, D7 — dashboard initial state gap + API contract
+- [ ] **T4 (P1, human: ~1h)** — simulation — 2 Python simulation scripts with configurable DEMO_SPEED drain rate; POST identical JSON to `/api/uplink` every 5s
+  - Files: `simulation/sim_unit.py` (parameterized: unit_id, initial_soc, demo_speed)
+  - Verify: Run 2 instances alongside 2 real ESP32s; all 4 appear on dashboard
+
+- [ ] **T5 (P1, human: ~2h)** — frontend — React dashboard: 4-unit grid with SOC bars, active-light indicator, baton-pass event feed, uptime counter; HTTP load + WebSocket live updates
   - Files: `frontend/src/App.tsx`, `frontend/src/hooks/useSwarmState.ts`
-  - Verify: Open dashboard mid-demo → shows current state (not empty); reconnect → shows fresh state
+  - Verify: Open dashboard → shows current state; watch baton-pass event appear when relay fires
 
-- [ ] **T8 (P2, human: ~1h / CC: ~10min)** — backend/api — Add error handling: 400 for malformed uplink, try/except for SQLite write failures
-  - Surfaced by: Failure modes — critical gaps on malformed payload + DB failure
-  - Files: `backend/api.py`, `backend/db.py`
-  - Verify: POST malformed payload → 400 returned; disk-full simulation → error logged, not silent
+- [ ] **T6 (P2, human: ~30min)** — backend/db — SQLite: log every uplink; `GET /api/state` includes last 20 SOC readings per unit for chart
+  - Files: `backend/db.py`
+  - Verify: Restart backend → chart shows history; SOC depletion curve visible
 
-- [ ] **T9 (P2, human: ~3h / CC: ~30min)** — tests — Write pytest suite: swarm_engine, simulation depletion math, API endpoints
-  - Surfaced by: D8 — full coverage selected
-  - Files: `backend/tests/test_swarm_engine.py`, `backend/tests/test_simulation.py`, `backend/tests/test_api.py`
-  - Verify: All 18 unit/integration paths from coverage diagram pass
+- [ ] **T7 (P2, human: ~30min)** — firmware — Voltage divider on ADC pin: read actual battery voltage and include real `battery_mv` in uplink (replaces hardcoded value)
+  - Files: `firmware/main.cpp` (add ADC read, voltage divider formula with resistor values on hand)
+  - Verify: Vary battery voltage → `battery_mv` changes in dashboard
 
-- [ ] **T10 (P2, human: ~2h / CC: ~20min)** — tests/e2e — Write E2E tests: baton-pass flow, comms-lost, dashboard reconnect
-  - Surfaced by: D8 — full coverage; 6 E2E paths in coverage diagram
-  - Files: `tests/e2e/test_baton_pass.py` (using httpx + asyncio)
-  - Verify: Simulated grid failure → relay fires → correct unit gets brightness command
+- [ ] **T8 (P2, human: ~30min)** — firmware — Photoresistor on ADC: when ambient light detected, set `grid_status=1` (daylight/"charging"); when dark, set `grid_status=0` (night/"outage") — triggers swarm mode automatically during demo
+  - Files: `firmware/main.cpp`
+  - Verify: Cover photoresistor → dashboard shows "OUTAGE DETECTED" and swarm activates
 
 ---
 
