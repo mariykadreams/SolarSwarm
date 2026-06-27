@@ -176,7 +176,7 @@ Reason: Eliminates the #1 hackathon failure mode (hardware doesn't work in time)
 
 **IS this product:**
 - Autonomous solar street lighting units with integrated battery and wireless communication
-- Swarm relay algorithm (Anti-BlackOut) coordinating between units
+- Swarm relay algorithm for autonomous distributed coverage coordination
 - Real-time dashboard for operators (battery levels, uptime, active light, alerts)
 - LiFePO4 battery + MPPT controller + LED driver hardware stack
 
@@ -207,12 +207,12 @@ Reason: Eliminates the #1 hackathon failure mode (hardware doesn't work in time)
 | Individual solar unit (panel + LiFePO4 + LED) | **Must Have** | Core hardware — nothing works without it |
 | Battery level monitoring per unit | **Must Have** | Foundation of swarm algorithm |
 | LoRaWAN communication between units | **Must Have** | Swarm requires inter-unit signaling |
-| Swarm relay algorithm (Anti-BlackOut) | **Must Have** | The product differentiator |
+| Swarm relay algorithm | **Must Have** | The product differentiator |
 | Grid-failure detection + swarm activation | **Must Have** | Triggers the swarm mode |
 | Real-time dashboard (battery %, active light, uptime) | **Must Have** | Operator visibility; also the hackathon demo star |
 | MPPT controller for efficient solar charging | **Must Have** | Required for 2-day autonomy to be achievable |
 | Configurable relay thresholds (30% / 10%) | **Should Have** | Different intersections have different needs |
-| Brightness dimming (adaptive) | **Should Have** | Anti-BlackOut requires dimming before cutover |
+| Brightness dimming (adaptive) | **Should Have** | Swarm relay requires dimming before cutover |
 | Alert notifications (Telegram/SMS on low battery) | **Should Have** | Operators need proactive warning |
 | Motion sensor for adaptive brightness (PIR) | **Should Have** | Extends battery life meaningfully |
 | Historical uptime reports | **Should Have** | KPI tracking for city managers |

@@ -152,7 +152,7 @@ Reason: Matches the hardware actually available. WiFi is functionally identical 
 
 **IS this product:**
 - Autonomous solar street lighting units with integrated battery and wireless communication
-- Swarm relay algorithm (Anti-BlackOut) coordinating between units
+- Swarm relay algorithm for autonomous distributed coverage coordination
 - Real-time dashboard for operators (battery levels, uptime, active light, alerts)
 - LiFePO4 battery + MPPT controller + LED driver hardware stack
 
@@ -183,7 +183,7 @@ Reason: Matches the hardware actually available. WiFi is functionally identical 
 | ESP32 unit with LED strip (PWM brightness control) | **Must Have** | 2× ESP32 + LED strip on hand — wire GPIO → MOSFET → strip |
 | Simulated battery SOC per unit | **Must Have** | Software counter depleting at configurable rate; 2 real + 2 virtual |
 | WiFi communication (ESP32 → backend) | **Must Have** | Built-in on ESP32; replaces LoRa for demo; HTTP POST every 5s |
-| Swarm relay algorithm (Anti-BlackOut) | **Must Have** | Backend Python — identical logic to production |
+| Swarm relay algorithm | **Must Have** | Backend Python — identical logic to production |
 | "Outage" trigger (manual button or API call) | **Must Have** | Button on ESP32 or `POST /api/simulate/outage` from demo laptop |
 | Real-time dashboard (battery %, active light, uptime) | **Must Have** | React + Recharts; WebSocket updates |
 | Brightness dimming (adaptive via PWM) | **Must Have** | ESP32 PWM on LED strip — shows baton-pass visually |

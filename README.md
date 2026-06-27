@@ -8,7 +8,7 @@ Streets go dark during power outages. In Ukraine and similar regions, outages la
 
 ## The Solution
 
-SolarSwarm deploys a swarm relay algorithm (**Anti-BlackOut**) where lights coordinate like a relay race: when one unit's battery drops below 30%, the next unit (ranked by remaining charge) ramps to 100% brightness. The intersection never goes dark as long as any unit has charge remaining.
+SolarSwarm deploys a swarm relay algorithm where lights coordinate like a relay race: when one unit's battery drops below 30%, the next unit (ranked by remaining charge) ramps to 100% brightness. The intersection never goes dark as long as any unit has charge remaining.
 
 **The demo moment:** cut power to the grid → watch Light #1 dim → Light #2 automatically ramps up on the dashboard → intersection stays lit.
 
