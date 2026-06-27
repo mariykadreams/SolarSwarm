@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+.env
+*.egg-info/
+dist/
+build/
+
+# Node / React
+node_modules/
+dist/
+.next/
+.nuxt/
+*.local
+
+# SQLite
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Docker
+.docker/
+
+# Temporary / build artifacts
+*.tmp
+*.bak
+~$*
+
+# Firmware build
+firmware/.pio/
+firmware/build/
+firmware/*.bin
+firmware/*.elf
+
+# Secrets
+.env
+secrets.json
+config.local.json
