@@ -195,8 +195,11 @@ Without it, the dashboard (reading) and the uplink handler (writing) will deadlo
 await db.execute("PRAGMA journal_mode=WAL")
 ```
 
-**Slave fallback = hold last brightness, not auto mode.**
-If the Slave loses ESP-NOW for 30+ seconds, it keeps its last commanded brightness. Do not fall back to photoresistor auto mode — the dashboard will show the wrong state.
+### Slave Fallback
+
+If the Slave loses ESP-NOW for 30+ seconds, it keeps its last commanded brightness.
+
+Do not fall back to photoresistor auto mode — the dashboard will show the wrong state.
 
 ---
 
@@ -212,9 +215,57 @@ If the Slave loses ESP-NOW for 30+ seconds, it keeps its last commanded brightne
 
 ## Demo Script
 
-1. Both ESP32s powered, 2 simulation scripts running → dashboard shows 4 nodes at ~95% SOC
-2. Click **Simulate Outage** → swarm activates, primary node glows
-3. Set Speed to **10×** → SOC drains visibly on chart
-4. Watch: primary SOC hits 29% → relay_start event → both LEDs at 50%
-5. Primary hits 9% → relay_complete → backup LED at 100%, primary at 5%
-6. Click **Reset** → all back to 95%, ready to repeat
+1. Both ESP32s powered, 2 simulation scripts running → dashboard shows 4 nodes at ~95% SOC.
+2. Click **Simulate Outage** → swarm activates, primary node glows.
+3. Set Speed to **10×** → SOC drains visibly on chart.
+4. Watch: primary SOC hits 29% → `relay_start` event → both LEDs at 50%.
+5. Primary hits 9% → `relay_complete` → backup LED at 100%, primary at 5%.
+6. Click **Reset** → all back to 95%, ready to repeat.
+
+## Architecture Notes
+
+- **Channel of commands:** HTTP polling — Master asks the backend itself (in the POST response body), not MQTT, not WebSocket from the ESP32 side.
+- **Swarm algorithm:** centralized on the backend, not on hardware.
+- **Database:** SQLite + WAL mode, not PostgreSQL.
+- **Slave fallback:** keeps the last brightness, not photoresistor auto mode.
+
+## Backend to Frontend Messages
+
+### WebSocket `/ws`
+
+Push after each uplink:
+
+```json
+// Every 5s per node:
+{"type": "state_update", "node_id": 0, "soc": 86, "brightness": 100}
+
+// When relay starts:
+{"type": "swarm_event", "event": "relay_start", "from_unit": 1, "to_unit": 0, "soc_trigger": 29}
+
+// When relay completes:
+{"type": "swarm_event", "event": "relay_complete", "from_unit": 1, "to_unit": 0, "duration_s": 4.2}
+
+// Alerts:
+{"type": "alert", "level": "warning", "message": "Node 1 SOC below 30%"}
+{"type": "alert", "level": "critical", "message": "All nodes below 10%"}
+{"type": "alert", "level": "info",    "message": "Grid restored"}
+
+// If SQLite fails:
+{"type": "alert", "level": "warning", "message": "DB write failed — data may be delayed"}
+```
+
+### REST on page load
+
+```http
+GET /api/state   → current state of all 4 nodes (soc, brightness, online/offline)
+GET /api/history → last 120 SOC records per node (for chart)
+```
+
+## Frontend Integration Summary
+
+- On open → `GET /api/state` + `GET /api/history`
+- Connect WebSocket `/ws`
+- On `state_update` → update node card
+- On `swarm_event` → add to event feed + move glow
+- On `alert` → add to event feed
+- On WS reconnect → call `GET /api/state` again before subscribing
