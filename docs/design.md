@@ -674,6 +674,374 @@ Synthesized from this review's findings. Each task derives from a specific findi
 
 ---
 
+---
+
+## Component Specifications
+
+This section defines exactly what to build in each part of the system. Treat it as the source of truth for each developer lane.
+
+---
+
+### Dashboard (React Web App)
+
+**Who uses it:** Judges during the demo. In production: city operators and maintenance engineers.
+
+**URL:** `http://localhost:3000` (dev) or served from the demo laptop.
+
+**Tech stack:** React + Recharts + TailwindCSS (or plain CSS). No auth required for hackathon.
+
+---
+
+#### Screen 1: Main Swarm View (the only screen for MVP)
+
+Layout: single page, no navigation. Everything visible without scrolling on a 1080p screen.
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  🔆 SolarSwarm          [GRID UP]          Coverage: 47.2h left  │  ← Header bar
+├──────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐           │
+│  │ UNIT 0  │  │ UNIT 1  │  │ UNIT 2  │  │ UNIT 3  │           │  ← Unit cards
+│  │ [phys]  │  │ [phys]  │  │ [sim]   │  │ [sim]   │           │
+│  │  ████   │  │  ██     │  │  ███    │  │  ███    │           │
+│  │  72%    │  │  38%    │  │  65%    │  │  61%    │           │
+│  │ 100% 💡 │  │  0%  💤 │  │  0%  💤 │  │  0%  💤 │           │
+│  └─────────┘  └─────────┘  └─────────┘  └─────────┘           │
+│                                                                  │
+├──────────────────────────────────────────────────────────────────┤
+│  Battery SOC over time                                           │  ← SOC chart
+│  100% ┤╲  Unit 0 ── Unit 1 ·· Unit 2 -- Unit 3 ─·              │
+│   50% ┤  ╲___                                                    │
+│    0% ┤       ╲___                                               │
+│       └──────────────────────────── time →                      │
+├──────────────────────────────────────────────────────────────────┤
+│  Events                                                          │  ← Event feed
+│  21:43  OUTAGE DETECTED — swarm mode active                     │
+│  21:45  ⚡ Relay: Unit 0 → Unit 1  |  SOC trigger: 29%          │
+│  21:52  ✅ Relay complete — Unit 1 is primary                    │
+│  22:15  🔴 CRITICAL — all units below 10%                        │
+├──────────────────────────────────────────────────────────────────┤
+│  [Simulate Outage]    [Reset Demo]    Speed: [1×] [5×] [10×]    │  ← Demo controls
+└──────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+#### Component: Header Bar
+
+| Element | Content | Update frequency |
+|---|---|---|
+| System name | "SolarSwarm" | Static |
+| Grid status badge | `GRID UP` (green) / `OUTAGE ACTIVE` (red, pulsing) | On WebSocket `state_update` |
+| Coverage remaining | "47.2h left" — calculated from total swarm SOC capacity ÷ drain rate | Every 5s |
+| Last updated | "Updated 2s ago" — timestamp of last WebSocket message | Continuous |
+
+Coverage formula (calculate in frontend):
+```js
+const totalCapacityKwh = units.length * 1.2  // 1.2 kWh per unit
+const remainingKwh = units.reduce((sum, u) => sum + (u.soc / 100) * 1.2, 0)
+const drainKwhPerHour = 0.05  // 50W LED at 100% = 0.05 kWh/h
+const hoursRemaining = remainingKwh / drainKwhPerHour
+```
+
+---
+
+#### Component: Unit Cards (×4)
+
+Each card represents one light. Visual state changes are what make the demo compelling.
+
+| Element | Content | States |
+|---|---|---|
+| Unit ID | "UNIT 0", "UNIT 1", etc. | Static |
+| Type badge | `physical` (blue) / `simulated` (gray) | Static, set from API `type` field |
+| Battery bar | Vertical fill, height = SOC % | Green >50%, yellow 20–50%, red <20% |
+| SOC number | "72%" | Updates every POST (5s) |
+| Brightness indicator | "100% 💡" when primary, "0% 💤" when standby | Updates on relay event |
+| Card border/glow | **Bright white glow** when this unit is primary | Only one card glows at a time |
+| Animation | Bar drains smoothly (CSS transition 500ms) | On each SOC update |
+
+The glow on the active card is the single most important visual. Judges will watch it shift from card to card during the baton pass. Make it obvious.
+
+---
+
+#### Component: SOC Chart (Time-Series)
+
+| Property | Value |
+|---|---|
+| Library | `recharts` — `LineChart` component |
+| X axis | Time (last 10 minutes visible, scrolls as time passes) |
+| Y axis | 0–100% SOC |
+| Lines | 4 lines, one per unit, different colors |
+| Data source | `GET /api/history` on mount, then append from WebSocket `state_update` events |
+| Annotations | Vertical dashed line + label when relay event fires ("Relay 0→1") |
+
+The chart proves the system worked over time, not just right now. Keep a rolling 10-minute window.
+
+---
+
+#### Component: Event Feed
+
+Reverse-chronological list of system events. Each entry:
+
+```
+[timestamp]  [icon]  [message]
+21:43        🔴      OUTAGE DETECTED — swarm mode active
+21:45        ⚡      Relay started: Unit 0 → Unit 1  |  SOC trigger: 29%
+21:52        ✅      Relay complete — Unit 1 is primary  |  took 4.2s
+22:15        🚨      CRITICAL — all units below 10% — coverage at minimum
+22:31        🟢      Grid restored — units recharging
+```
+
+Data source: WebSocket `swarm_event` and `alert` message types. Store last 20 events in component state.
+
+---
+
+#### Component: Demo Controls (hackathon only, not for production)
+
+Three controls at the bottom, clearly labeled "Demo Controls":
+
+| Control | Action | API call |
+|---|---|---|
+| "Simulate Outage" button | Triggers grid failure event | `POST /api/simulate/outage` |
+| "Reset Demo" button | Resets all SOC to 95%, clears event log | `POST /api/simulate/reset` |
+| Speed selector: 1× / 5× / 10× | Sets simulation drain speed | `POST /api/simulate/speed {"rate": 10}` |
+
+These controls exist only to make the demo run in 5 minutes instead of 8 hours. Remove them from any production build.
+
+---
+
+#### WebSocket Message Types (frontend handles these)
+
+```js
+// State update — fires every 5s per unit
+{"type": "state_update", "unit_id": 0, "soc": 71, "brightness": 100, "grid_status": 1}
+
+// Relay event — fires when relay algorithm triggers
+{"type": "swarm_event", "event": "relay_start", "from_unit": 0, "to_unit": 1, "soc_trigger": 29}
+{"type": "swarm_event", "event": "relay_complete", "from_unit": 0, "to_unit": 1, "duration_s": 4.2}
+
+// Alert — fires on threshold crossings
+{"type": "alert", "level": "warning", "message": "Unit 0 SOC below 30%"}
+{"type": "alert", "level": "critical", "message": "All units below 10% — emergency mode active"}
+{"type": "alert", "level": "info", "message": "Grid restored — swarm deactivated"}
+```
+
+On page load: fetch `GET /api/state` first, then connect WebSocket. On WebSocket reconnect: re-fetch state before re-subscribing.
+
+---
+
+### Backend API (FastAPI — Python)
+
+**Runs on:** demo laptop at `http://localhost:8000`
+
+**Files:** `backend/api.py`, `backend/swarm_engine.py`, `backend/db.py`
+
+---
+
+#### Endpoints
+
+**`POST /api/uplink`** — called by ESP32 firmware and simulation scripts every 5s
+
+```python
+# Request body
+{
+  "unit_id": 0,          # 0–3
+  "soc_percent": 72,     # 0–100
+  "grid_status": 1,      # 1=grid up, 0=outage
+  "battery_mv": 3850,    # optional, raw millivolts
+  "type": "physical"     # "physical" or "simulated"
+}
+
+# Response — brightness command returned immediately
+{
+  "brightness": 100,      # 0–100, what this unit should set its LED to
+  "swarm_active": true    # whether swarm mode is currently running
+}
+```
+
+What the endpoint does:
+1. Update unit state in memory (`swarm_engine.units[unit_id]`)
+2. If any unit reports `grid_status=0` → activate swarm mode
+3. Run relay algorithm → assign brightness to all units
+4. Log to SQLite
+5. Push WebSocket `state_update` to all connected dashboards
+6. Return this unit's assigned brightness in the response
+
+---
+
+**`GET /api/state`** — called by dashboard on page load
+
+```python
+# Response
+{
+  "units": [
+    {"id": 0, "soc": 72, "brightness": 100, "grid_status": 1, "type": "physical", "last_seen_s": 2},
+    {"id": 1, "soc": 38, "brightness": 0,   "grid_status": 1, "type": "physical", "last_seen_s": 3},
+    {"id": 2, "soc": 65, "brightness": 0,   "grid_status": 1, "type": "simulated","last_seen_s": 1},
+    {"id": 3, "soc": 61, "brightness": 0,   "grid_status": 1, "type": "simulated","last_seen_s": 4}
+  ],
+  "swarm_active": false,
+  "active_unit_id": null,       # which unit is currently primary (or null if swarm off)
+  "grid_status": 1,
+  "coverage_hours_remaining": 47.2
+}
+```
+
+---
+
+**`GET /api/history`** — SOC history for the chart
+
+```python
+# Response — last 120 readings per unit (10 minutes at 5s intervals)
+{
+  "history": [
+    {"ts": "2026-06-27T21:43:00", "unit_id": 0, "soc": 95},
+    {"ts": "2026-06-27T21:43:05", "unit_id": 0, "soc": 94.5},
+    ...
+  ]
+}
+```
+
+---
+
+**`WebSocket /ws`** — dashboard subscribes after page load
+
+Server pushes messages on every state change (see WebSocket message types above).
+
+---
+
+**`POST /api/simulate/outage`** — demo control: trigger grid failure
+
+Sets `grid_status=0` on all units, activates swarm mode.
+
+**`POST /api/simulate/reset`** — demo control: restore to starting state
+
+Resets all SOC to 95%, clears swarm mode, pushes reset event to dashboard.
+
+**`POST /api/simulate/speed`** — demo control: change drain speed
+
+```python
+{"rate": 10}  # multiplier: 1=realistic, 10=fast demo
+```
+
+---
+
+#### Swarm Engine (`backend/swarm_engine.py`)
+
+Core logic — no I/O, pure computation. Easy to unit test.
+
+```python
+def compute_brightness(units: dict, swarm_active: bool) -> dict:
+    """
+    Input:  units = {unit_id: {"soc": 72, "brightness": 100, ...}}
+    Output: {unit_id: brightness_percent}
+    """
+    if not swarm_active:
+        return {uid: 0 for uid in units}  # grid up: all off (grid handles lighting)
+
+    # Sort by SOC descending; lower id breaks ties
+    queue = sorted(units.items(), key=lambda x: (-x[1]["soc"], x[0]))
+
+    # Emergency: all below 10%
+    if all(u["soc"] <= 10 for _, u in queue):
+        return {uid: 5 for uid in units}
+
+    result = {uid: 0 for uid in units}
+    primary_id, primary = queue[0]
+    backup_id, backup = queue[1] if len(queue) > 1 else (None, None)
+
+    if primary["soc"] > 30:
+        result[primary_id] = 100
+    elif primary["soc"] > 10:
+        result[primary_id] = 50   # dimming — handoff in progress
+        if backup_id:
+            result[backup_id] = 50  # backup ramping up alongside
+    else:
+        result[primary_id] = 5    # critical minimum
+        if backup_id:
+            result[backup_id] = 100  # backup is now primary
+
+    return result
+```
+
+---
+
+### ESP32 Firmware (`firmware/main.cpp`)
+
+**What the firmware does — in order:**
+
+1. **Connect to Wi-Fi** — SSID and password hardcoded (demo hotspot from laptop)
+2. **Every 5 seconds:**
+   a. Read simulated SOC (decrement counter by `DRAIN_RATE`)
+   b. Read photoresistor ADC → set `grid_status` (bright = 1, dark = 0)
+   c. Optionally read voltage divider ADC → set `battery_mv`
+   d. POST JSON to `http://LAPTOP_IP:8000/api/uplink`
+   e. Parse response: read `brightness` field
+   f. Set LED strip PWM to that brightness (0–100% → 0–255 duty cycle)
+3. **If 3 consecutive POST failures:** hold last brightness, keep LED on, retry next cycle
+
+**Key variables to configure before flashing:**
+```cpp
+const char* WIFI_SSID = "YourHotspot";
+const char* WIFI_PASS = "YourPassword";
+const char* BACKEND_URL = "http://192.168.1.X:8000/api/uplink";
+const int UNIT_ID = 0;              // Change to 1 for second physical unit
+const int LED_PIN = 13;             // GPIO pin to LED MOSFET gate
+const float DRAIN_RATE = 0.5;       // % SOC per 5s tick (0.5 = realistic, 5.0 = fast demo)
+float soc = 95.0;                   // Starting SOC
+```
+
+**Wiring (per unit):**
+```
+USB 5V → ESP32 VIN
+GND    → ESP32 GND
+
+LED strip:
+  ESP32 GPIO13 → 100Ω resistor → MOSFET gate
+  MOSFET drain → LED strip negative
+  MOSFET source → GND
+  LED strip positive → 5V supply
+
+Photoresistor (outage trigger):
+  3.3V → photoresistor → GPIO35 → 10kΩ → GND
+  (bright = high reading = grid up; dark/covered = low = outage)
+```
+
+---
+
+### Simulation Scripts (`simulation/sim_unit.py`)
+
+Two instances of the same script, one per virtual unit (unit_id 2 and 3).
+
+**What each script does:**
+1. Start with configurable initial SOC (e.g. 65% for unit 2, 61% for unit 3)
+2. Every 5 seconds: POST JSON to `/api/uplink` with current SOC
+3. Read `brightness` from response — if 100% (primary), drain faster; if 0% (standby), drain slow
+4. Decrement SOC accordingly
+
+**Run two instances:**
+```bash
+python sim_unit.py --unit-id 2 --initial-soc 65 --speed 10
+python sim_unit.py --unit-id 3 --initial-soc 61 --speed 10
+```
+
+**`--speed 10`** means SOC drains 10× faster than real — full relay sequence visible in ~2 minutes.
+
+---
+
+### What Each Component Owns
+
+| Component | Files | Developer |
+|---|---|---|
+| Dashboard | `frontend/src/` | Build after backend stub is up |
+| Backend API + swarm engine | `backend/api.py`, `backend/swarm_engine.py` | Build first (everything depends on it) |
+| Database | `backend/db.py` | Add after core API works |
+| ESP32 firmware | `firmware/main.cpp` | Can develop in parallel; test with curl mock |
+| Simulation scripts | `simulation/sim_unit.py` | Can develop in parallel with firmware |
+
+---
+
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
