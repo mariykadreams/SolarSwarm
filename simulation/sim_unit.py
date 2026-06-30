@@ -10,7 +10,8 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError
 
 BACKEND_URL = "http://localhost:8000/api/uplink"
-DRAIN_RATE = 0.5  # % SOC per tick — must match firmware
+DRAIN_RATE_ACTIVE = 0.5   # % SOC per tick when lamp is on
+DRAIN_RATE_STANDBY = 0.05  # % SOC per tick when standby (10x slower)
 TICK_SECONDS = 5
 INITIAL_SOC = 95.0
 
@@ -34,7 +35,8 @@ def run(node_id: int, outage: bool = False):
 
     while True:
         speed = get_demo_speed(BACKEND_URL)
-        soc = max(0, soc - DRAIN_RATE * speed)
+        drain = DRAIN_RATE_ACTIVE if brightness_actual > 0 else DRAIN_RATE_STANDBY
+        soc = max(0, soc - drain * speed)
 
         payload = {
             "nodes": [
