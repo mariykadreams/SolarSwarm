@@ -9,6 +9,8 @@ env/
 *.egg-info/
 dist/
 build/
+*.db-shm
+*.db-wal
 
 # Node / React
 node_modules/

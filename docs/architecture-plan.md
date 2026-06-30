@@ -432,6 +432,7 @@ Command round-trip for Slave (worst case):
 
 | Item | Why deferred |
 |------|--------------|
+| ESP32-CAM Node C (see §10) | Strong demo upgrade but system works without it; add if time allows |
 | Voltage divider (real battery_mv) | Hardcode 3850mV; real voltage adds setup time |
 | Per-node brightness slider on dashboard | Commands come from swarm algorithm; manual override is Future |
 | Node identify blink command | Nice-to-have, not required for baton-pass demo |
@@ -527,6 +528,78 @@ Execution order: **C stub first** (30 min: one route returning `{"commands": [{"
 - [ ] Test: unplug Slave ESP32 → dashboard shows node_1 offline within 15s
 - [ ] Test: cover photoresistor on Master → OUTAGE DETECTED on dashboard within 5s
 - [ ] Test: DEMO_SPEED=10 full relay sequence → LED strips visibly dim/brighten within 2 min
+
+---
+
+## 10. ESP32-CAM Node — Power Control Proof of Concept
+
+### Hardware
+
+- **Board:** ESP32-Cam-MB (USB programmer built in, no FTDI adapter needed)
+- **Camera module:** OV2640
+- **Role:** Node C — physical proof that the swarm can switch electricity on and off
+
+### Why a camera (not a second LED)
+
+An LED dimming is unconvincing to a judge — it could be faked in software.
+A camera streaming live video is impossible to fake: if the MJPEG stream is reachable, power is on. If the stream drops, power was cut. No other explanation.
+
+The camera is **not used for image quality, video recording, or computer vision**. It exists solely as a binary electricity indicator: streaming = powered, dead = unpowered.
+
+### How it proves power control
+
+```
+Swarm decides Node C should power off (SOC too low, or outage simulation)
+    │
+    ▼
+Backend sends brightness=0 (or a new field: power=false) to Node C
+    │
+    ▼
+ESP32-CAM enters deep sleep / stops the HTTP server
+    │
+    ▼
+Dashboard's camera iframe shows "stream offline"  ← visible proof to judges
+    │
+    ▼
+Swarm restores Node C → ESP32-CAM wakes, stream resumes within ~2s
+```
+
+### Integration with existing architecture
+
+| Item | Detail |
+|------|--------|
+| Node ID | `node_id: 2` (alongside existing simulated node 2 — rename sim to node 4 if both present) |
+| Uplink | ESP32-CAM POSTs its own uplink directly to `POST /api/uplink` via WiFi (same contract as Master) |
+| No ESP-NOW needed | CAM board has its own WiFi; skip ESP-NOW for this node |
+| Stream URL | `http://<cam-ip>:81/stream` (standard ESP32-CAM MJPEG server port) |
+| Dashboard | Embed stream in an `<img src="...">` or `<iframe>` in the Node C card; show "OFFLINE" overlay when stream unreachable |
+| Power command | Backend sends `brightness: 0` → firmware interprets 0 as deep sleep trigger; any brightness > 0 wakes/stays awake |
+
+### Firmware sketch (ESP32-CAM)
+
+```cpp
+// Key additions to standard CameraWebServer example:
+
+void applyCommand(int brightness) {
+  if (brightness == 0) {
+    // Power-off proof: stop stream, enter deep sleep
+    esp_deep_sleep(30 * 1000000ULL); // wake after 30s to re-check
+  }
+  // brightness > 0: camera stays awake, stream serves normally
+}
+
+// POST /api/uplink every 5s (same payload contract):
+// { "node_id": 2, "role": "camera", "soc": <simulated>, "online": true,
+//   "stream_url": "http://<ip>:81/stream" }
+```
+
+### Demo talking point
+
+> "When the swarm detects Node C has insufficient charge, it cuts power to that node entirely. You can see the camera feed go offline in real time — the system isn't just dimming an LED, it is literally switching electricity. When the swarm rebalances and decides Node C can resume, power is restored and the stream comes back."
+
+### Accepted risk
+
+Deep sleep on ESP32-CAM takes ~2s to wake and reconnect to WiFi. Dashboard should show a "reconnecting…" state for up to 5s before declaring the node offline (increase `slave_age_ms` threshold to 10 000 ms for camera node only).
 
 ---
 
