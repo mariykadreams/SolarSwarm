@@ -2,6 +2,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from backend.api import app, unit_cache, ws_manager
+from backend.camera import camera
 import backend.db as db_mod
 
 
@@ -13,6 +14,9 @@ async def clean_state(tmp_path):
     import backend.api as api_mod
     api_mod.swarm_active = False
     api_mod.DEMO_SPEED = 1.0
+    camera.power_off()
+    camera.last_heartbeat = 0
+    camera.ip = ""
     yield
     await db_mod.close()
 
@@ -99,3 +103,51 @@ async def test_simulate_reset(client):
     resp = await client.post("/api/simulate/reset")
     assert resp.status_code == 200
     assert unit_cache[0]["soc"] == 95
+
+
+@pytest.mark.anyio
+async def test_camera_alive_when_swarm_active(client):
+    await client.post("/api/uplink", json={
+        "nodes": [
+            {"node_id": 0, "role": "master", "soc": 80, "grid_status": 0},
+            {"node_id": 1, "role": "slave", "soc": 70, "grid_status": 0},
+        ]
+    })
+    assert camera.powered is True
+    assert camera.alive is True
+
+
+@pytest.mark.anyio
+async def test_camera_off_when_grid_up(client):
+    await client.post("/api/uplink", json={
+        "nodes": [
+            {"node_id": 0, "role": "master", "soc": 80, "grid_status": 1},
+        ]
+    })
+    assert camera.powered is False
+    assert camera.alive is False
+
+
+@pytest.mark.anyio
+async def test_camera_heartbeat_endpoint(client):
+    resp = await client.post("/api/camera/heartbeat", json={"ip": "192.168.1.50"})
+    assert resp.status_code == 200
+    assert resp.json()["powered"] is True
+    assert resp.json()["ip"] == "192.168.1.50"
+
+
+@pytest.mark.anyio
+async def test_camera_status_endpoint(client):
+    resp = await client.get("/api/camera/status")
+    assert resp.status_code == 200
+    assert "powered" in resp.json()
+    assert "alive" in resp.json()
+
+
+@pytest.mark.anyio
+async def test_state_includes_camera(client):
+    resp = await client.get("/api/state")
+    data = resp.json()
+    assert "camera" in data
+    assert "powered" in data["camera"]
+    assert "alive" in data["camera"]

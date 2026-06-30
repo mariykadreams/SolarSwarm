@@ -10,7 +10,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from . import db
-from .swarm_engine import compute_brightness
+from .camera import camera
+from .swarm_engine import compute_brightness, reset as reset_swarm
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ DEMO_SPEED: float = 1.0
 unit_cache: Dict[int, dict] = {}
 
 swarm_active: bool = False
-grid_override: Optional[int] = None  # None = use node-reported value; 0 = forced outage
+
 
 
 class NodePayload(BaseModel):
@@ -66,10 +67,31 @@ class ConnectionManager:
 ws_manager = ConnectionManager()
 
 
+async def camera_watchdog():
+    was_alive = False
+    while True:
+        await asyncio.sleep(2)
+        alive = camera.alive
+        if was_alive and not alive:
+            await ws_manager.broadcast({
+                "type": "camera_update",
+                "powered": False,
+                "alive": False,
+            })
+            await ws_manager.broadcast({
+                "type": "alert",
+                "level": "warning",
+                "message": "Camera power cut — stream offline",
+            })
+        was_alive = alive
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.get_db()
+    watchdog = asyncio.create_task(camera_watchdog())
     yield
+    watchdog.cancel()
     await db.close()
 
 
@@ -85,9 +107,6 @@ async def uplink(payload: UplinkPayload):
 
         if node.slave_age_ms is not None and node.slave_age_ms > 15000:
             entry["online"] = False
-
-        if grid_override is not None:
-            entry["grid_status"] = grid_override
 
         unit_cache[node.node_id] = entry
 
@@ -128,6 +147,33 @@ async def uplink(payload: UplinkPayload):
                 "soc_trigger": unit_cache.get(nid, {}).get("soc", 0),
             })
 
+    max_brightness = max(brightness.values()) if brightness else 0
+    was_alive = camera.alive
+
+    if max_brightness > 0:
+        camera.heartbeat()
+    else:
+        camera.power_off()
+
+    if camera.alive != was_alive:
+        if camera.alive:
+            await ws_manager.broadcast({
+                "type": "swarm_event",
+                "event": "camera_online",
+                "message": "Camera power restored — stream resuming",
+            })
+        else:
+            await ws_manager.broadcast({
+                "type": "alert",
+                "level": "warning",
+                "message": "Camera power cut — stream offline",
+            })
+
+    await ws_manager.broadcast({
+        "type": "camera_update",
+        **camera.to_dict(),
+    })
+
     commands = [
         {
             "node_id": nid,
@@ -153,7 +199,12 @@ async def get_state():
             "online": data.get("online", True),
             "last_seen_s": 0,
         })
-    return {"nodes": nodes, "swarm_active": swarm_active, "demo_speed": DEMO_SPEED}
+    return {
+        "nodes": nodes,
+        "swarm_active": swarm_active,
+        "demo_speed": DEMO_SPEED,
+        "camera": camera.to_dict(),
+    }
 
 
 @app.get("/api/history")
@@ -170,6 +221,29 @@ async def websocket_endpoint(ws: WebSocket):
             await ws.receive_text()
     except WebSocketDisconnect:
         ws_manager.disconnect(ws)
+
+
+class CameraHeartbeat(BaseModel):
+    ip: str = ""
+
+
+@app.post("/api/camera/heartbeat")
+async def camera_heartbeat(payload: CameraHeartbeat):
+    was_alive = camera.alive
+    camera.heartbeat(ip=payload.ip)
+    if not was_alive and camera.alive:
+        await ws_manager.broadcast({
+            "type": "swarm_event",
+            "event": "camera_online",
+            "message": "Camera connected — stream live",
+        })
+    await ws_manager.broadcast({"type": "camera_update", **camera.to_dict()})
+    return camera.to_dict()
+
+
+@app.get("/api/camera/status")
+async def camera_status():
+    return camera.to_dict()
 
 
 @app.post("/api/simulate/outage")
@@ -198,6 +272,8 @@ async def simulate_reset():
         "level": "info",
         "message": "Demo reset — all SOC restored to 95%",
     })
+    camera.power_off()
+    reset_swarm()
     return {"status": "reset_complete", "swarm_active": False}
 
 
